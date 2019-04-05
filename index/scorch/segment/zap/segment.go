@@ -57,7 +57,6 @@ func Open(path string) (segment.Segment, error) {
 			fieldsMap:      make(map[string]uint16),
 			fieldDvReaders: make(map[uint16]*docValueReader),
 			fieldFSTs:      make(map[string]*vellum.FST),
-			fstReaders:     make(map[string][]*vellum.Reader),
 		},
 		f:    f,
 		mm:   mm,
@@ -104,9 +103,8 @@ type SegmentBase struct {
 	fieldDvNames      []string                   // field names cached in fieldDvReaders
 	size              uint64
 
-	m          sync.Mutex
-	fieldFSTs  map[string]*vellum.FST
-	fstReaders map[string][]*vellum.Reader
+	m         sync.Mutex
+	fieldFSTs map[string]*vellum.FST
 }
 
 func (sb *SegmentBase) Size() int {
@@ -244,25 +242,6 @@ func (s *SegmentBase) loadFields() error {
 	return nil
 }
 
-func (sb *SegmentBase) allocVellumReader(field string) *vellum.Reader {
-	sb.m.Lock()
-	if sb.fstReaders != nil {
-		frs := sb.fstReaders[field]
-		if frs != nil {
-			last := len(frs) - 1
-			if last >= 0 {
-				fr := frs[last]
-				frs[last] = nil
-				sb.fstReaders[field] = frs[:last]
-				sb.m.Unlock()
-				return fr
-			}
-		}
-	}
-	sb.m.Unlock()
-	return nil
-}
-
 // Dictionary returns the term dictionary for the specified field
 func (s *SegmentBase) Dictionary(field string) (segment.TermDictionary, error) {
 	var err error
@@ -300,13 +279,12 @@ func (sb *SegmentBase) dictionary(field string) (rv *Dictionary, err error) {
 			}
 
 			sb.m.Unlock()
-			rv.fstReader = sb.allocVellumReader(field)
-			if rv.fstReader == nil {
-				rv.fstReader, err = rv.fst.Reader()
-				if err != nil {
-					return nil, fmt.Errorf("dictionary field %s vellum reader err: %v", field, err)
-				}
+
+			rv.fstReader, err = rv.fst.Reader()
+			if err != nil {
+				return nil, fmt.Errorf("dictionary field %s vellum reader err: %v", field, err)
 			}
+
 		}
 	}
 

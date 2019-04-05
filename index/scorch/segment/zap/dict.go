@@ -33,14 +33,6 @@ type Dictionary struct {
 	fstReader *vellum.Reader
 }
 
-func (d *Dictionary) Close() {
-	d.sb.m.Lock()
-	frs := d.sb.fstReaders[d.field]
-	frs = append(frs, d.fstReader)
-	d.sb.fstReaders[d.field] = frs
-	d.sb.m.Unlock()
-}
-
 // PostingsList returns the postings list for the specified term
 func (d *Dictionary) PostingsList(term []byte, except *roaring.Bitmap,
 	prealloc segment.PostingsList) (segment.PostingsList, error) {

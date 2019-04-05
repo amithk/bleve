@@ -27,7 +27,6 @@ import (
 	"github.com/blevesearch/bleve/document"
 	"github.com/blevesearch/bleve/index"
 	"github.com/blevesearch/bleve/index/scorch/segment"
-	"github.com/blevesearch/bleve/index/scorch/segment/zap"
 	"github.com/couchbase/vellum"
 	lev2 "github.com/couchbase/vellum/levenshtein2"
 )
@@ -501,11 +500,6 @@ func (i *IndexSnapshot) recycleTermFieldReader(tfr *IndexSnapshotTermFieldReader
 	i.parent.rootLock.RUnlock()
 	if obsolete {
 		// if we're not the current root (mutations happened), don't bother recycling
-		for _, dict := range tfr.dicts {
-			if d, ok := dict.(*zap.Dictionary); ok {
-				d.Close()
-			}
-		}
 		return
 	}
 
