@@ -16,6 +16,7 @@ package zap
 
 import (
 	"bufio"
+	"github.com/couchbase/vellum"
 	"math"
 	"os"
 )
@@ -137,6 +138,8 @@ func InitSegmentBase(mem []byte, memCRC uint32, chunkFactor uint32,
 		docValueOffset:    docValueOffset,
 		dictLocs:          dictLocs,
 		fieldDvReaders:    make(map[uint16]*docValueReader),
+		fieldFSTs:         make(map[string]*vellum.FST),
+		fstReaders:        make(map[string][]*vellum.Reader),
 	}
 	sb.updateSize()
 

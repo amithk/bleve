@@ -56,6 +56,8 @@ func Open(path string) (segment.Segment, error) {
 			mem:            mm[0 : len(mm)-FooterSize],
 			fieldsMap:      make(map[string]uint16),
 			fieldDvReaders: make(map[uint16]*docValueReader),
+			fieldFSTs:      make(map[string]*vellum.FST),
+			fstReaders:     make(map[string][]*vellum.Reader),
 		},
 		f:    f,
 		mm:   mm,
@@ -101,6 +103,10 @@ type SegmentBase struct {
 	fieldDvReaders    map[uint16]*docValueReader // naive chunk cache per field
 	fieldDvNames      []string                   // field names cached in fieldDvReaders
 	size              uint64
+
+	m          sync.Mutex
+	fieldFSTs  map[string]*vellum.FST
+	fstReaders map[string][]*vellum.Reader
 }
 
 func (sb *SegmentBase) Size() int {
@@ -238,8 +244,28 @@ func (s *SegmentBase) loadFields() error {
 	return nil
 }
 
+func (sb *SegmentBase) allocVellumReader(field string) *vellum.Reader {
+	sb.m.Lock()
+	if sb.fstReaders != nil {
+		frs := sb.fstReaders[field]
+		if frs != nil {
+			last := len(frs) - 1
+			if last >= 0 {
+				fr := frs[last]
+				frs[last] = nil
+				sb.fstReaders[field] = frs[:last]
+				sb.m.Unlock()
+				return fr
+			}
+		}
+	}
+	sb.m.Unlock()
+	return nil
+}
+
 // Dictionary returns the term dictionary for the specified field
 func (s *SegmentBase) Dictionary(field string) (segment.TermDictionary, error) {
+	var err error
 	dict, err := s.dictionary(field)
 	if err == nil && dict == nil {
 		return &segment.EmptyDictionary{}, nil
@@ -258,14 +284,24 @@ func (sb *SegmentBase) dictionary(field string) (rv *Dictionary, err error) {
 
 		dictStart := sb.dictLocs[rv.fieldID]
 		if dictStart > 0 {
-			// read the length of the vellum data
-			vellumLen, read := binary.Uvarint(sb.mem[dictStart : dictStart+binary.MaxVarintLen64])
-			fstBytes := sb.mem[dictStart+uint64(read) : dictStart+uint64(read)+vellumLen]
-			if fstBytes != nil {
-				rv.fst, err = vellum.Load(fstBytes)
-				if err != nil {
-					return nil, fmt.Errorf("dictionary field %s vellum err: %v", field, err)
+			var ok bool
+			sb.m.Lock()
+			if rv.fst, ok = sb.fieldFSTs[field]; !ok {
+				// read the length of the vellum data
+				vellumLen, read := binary.Uvarint(sb.mem[dictStart : dictStart+binary.MaxVarintLen64])
+				fstBytes := sb.mem[dictStart+uint64(read) : dictStart+uint64(read)+vellumLen]
+				if fstBytes != nil {
+					rv.fst, err = vellum.Load(fstBytes)
+					if err != nil {
+						return nil, fmt.Errorf("dictionary field %s vellum err: %v", field, err)
+					}
 				}
+				sb.fieldFSTs[field] = rv.fst
+			}
+
+			sb.m.Unlock()
+			rv.fstReader = sb.allocVellumReader(field)
+			if rv.fstReader == nil {
 				rv.fstReader, err = rv.fst.Reader()
 				if err != nil {
 					return nil, fmt.Errorf("dictionary field %s vellum reader err: %v", field, err)
